@@ -20,13 +20,36 @@ class FirebaseNotConfiguredError(RuntimeError):
     pass
 
 
+class FirebaseConfigurationError(RuntimeError):
+    pass
+
+
 def _load_credentials():
     value = FIREBASE_CREDENTIALS
     if value is None:
         return None
     if value.lstrip().startswith("{"):
-        return json.loads(value)
-    return value
+        try:
+            creds = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise FirebaseConfigurationError(
+                "FIREBASE_SERVICE_ACCOUNT parece ser JSON, mas não é um JSON válido. "
+                "Cole o conteúdo completo do arquivo do service account."
+            ) from exc
+        required = {"type", "project_id", "client_email", "private_key"}
+        missing = required - set(creds)
+        if missing:
+            raise FirebaseConfigurationError(
+                "FIREBASE_SERVICE_ACCOUNT não contém os campos necessários "
+                f"({', '.join(sorted(missing))}). Use o JSON completo do service account."
+            )
+        return creds
+    if os.path.isfile(value):
+        return value
+    raise FirebaseConfigurationError(
+        "FIREBASE_SERVICE_ACCOUNT não é um JSON válido nem um caminho de arquivo existente. "
+        "Cole o JSON completo do service account ou informe um caminho válido."
+    )
 
 
 def init_firebase() -> None:
