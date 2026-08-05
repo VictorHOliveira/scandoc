@@ -29,6 +29,10 @@ async def lifespan(app: FastAPI):
         db.seed_plans(db.get_firestore())
     except firebase.FirebaseNotConfiguredError as exc:
         logger.warning("%s — os endpoints retornarão 503 até que o Firebase seja configurado.", exc)
+    except firebase.FirebaseConfigurationError as exc:
+        logger.warning("%s — os endpoints retornarão 503 até que a configuração seja corrigida.", exc)
+    except Exception:
+        logger.exception("Falha ao inicializar o Firebase — os endpoints retornarão 503.")
     yield
 
 
