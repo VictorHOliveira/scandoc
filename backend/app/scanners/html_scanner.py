@@ -1,4 +1,5 @@
 import re
+from typing import Callable, Optional
 
 from bs4 import BeautifulSoup
 
@@ -86,7 +87,9 @@ def _num_em(val: str) -> float | None:
     return None
 
 
-def scan_html(filename: str, data: bytes) -> dict:
+def scan_html(filename: str, data: bytes, on_progress: Callable[[int, str], None] | None = None) -> dict:
+    if on_progress:
+        on_progress(15, "Analisando estrutura HTML")
     text = data.decode("utf-8", errors="replace")
     soup = BeautifulSoup(text, "html.parser")
 
@@ -303,6 +306,9 @@ def scan_html(filename: str, data: bytes) -> dict:
     visible_text = soup.get_text(" ", strip=True)
     matches.extend(injection_scanner.scan_injection(visible_text))
     hidden_joined = "\n".join(dict.fromkeys(hidden_parts))
+
+    if on_progress:
+        on_progress(90, "Finalizando análise")
 
     return {
         "format": "html",

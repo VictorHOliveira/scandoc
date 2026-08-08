@@ -1,4 +1,5 @@
 import zipfile
+from typing import Callable, Optional
 
 from . import docx_scanner, html_scanner, image_scanner, pdf_scanner, text_scanner
 
@@ -39,12 +40,14 @@ def detect_format(filename: str, data: bytes) -> str | None:
     return None
 
 
-def run_scan(filename: str, data: bytes) -> dict:
+def run_scan(filename: str, data: bytes, on_progress: Callable[[int, str], None] | None = None) -> dict:
     fmt = detect_format(filename, data)
     if fmt is None:
         raise ValueError("Formato não suportado")
     if fmt == "doc":
         raise ValueError("Formato .doc (Word legado) não é suportado ainda. Converta o arquivo para .docx e tente novamente.")
+    if on_progress:
+        on_progress(5, f"Formato detectado: {fmt.upper()}")
     scanners = {
         "pdf": pdf_scanner.scan_pdf,
         "docx": docx_scanner.scan_docx,
@@ -52,4 +55,4 @@ def run_scan(filename: str, data: bytes) -> dict:
         "image": image_scanner.scan_image,
         "text": text_scanner.scan_text,
     }
-    return scanners[fmt](filename, data)
+    return scanners[fmt](filename, data, on_progress=on_progress)

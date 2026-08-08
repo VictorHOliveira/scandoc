@@ -1,8 +1,10 @@
+import threading
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from ..core import db
 from ..core.config import MAX_UPLOAD_MB
-from ..schemas import ScanResult
+from ..core.jobs import jobs
 from ..scanners.common import compute_score
 from ..scanners.runner import run_scan
 from .deps import get_current_user, get_db
@@ -10,7 +12,43 @@ from .deps import get_current_user, get_db
 router = APIRouter()
 
 
-@router.post("/scan", response_model=ScanResult)
+def _to_result(filename: str, raw: dict) -> dict:
+    return {
+        "filename": filename,
+        "format": raw["format"],
+        "score": compute_score(raw["findings"]),
+        "findings": raw["findings"],
+        "hidden_text": raw["hidden_text"],
+        "annotated_image": raw["annotated_image"],
+        "injection_matches": raw["injection_matches"],
+        "summary": raw["summary"],
+    }
+
+
+def _run_in_background(job, filename: str, data: bytes) -> None:
+    def set_progress(percent: int, stage: str) -> None:
+        jobs.update(job.id, progress={"percent": percent, "stage": stage})
+
+    try:
+        raw = run_scan(filename, data, on_progress=set_progress)
+    except ValueError as exc:
+        jobs.update(job.id, status="error", error=str(exc))
+        return
+    except Exception:
+        jobs.update(job.id, status="error", error="Erro interno ao analisar o arquivo")
+        return
+
+    try:
+        fdb = db.get_firestore()
+        score = compute_score(raw["findings"])
+        db.log_scan(fdb, job.uid, filename, raw["format"], score)
+    except Exception:
+        pass
+
+    jobs.update(job.id, status="done", result=_to_result(filename, raw))
+
+
+@router.post("/scan")
 async def scan(
     file: UploadFile,
     user: dict = Depends(get_current_user),
@@ -21,12 +59,6 @@ async def scan(
     if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"Arquivo maior que {MAX_UPLOAD_MB}MB")
 
-    filename = file.filename or "documento"
-    try:
-        raw = run_scan(filename, data)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
     fdb = get_db()
     allowed, quota = db.consume_quota(fdb, user["uid"])
     if not allowed:
@@ -35,16 +67,32 @@ async def scan(
             detail={"message": "Limite diário de análises atingido", "quota": quota},
         )
 
-    score = compute_score(raw["findings"])
-    db.log_scan(fdb, user["uid"], filename, raw["format"], score)
-
-    return ScanResult(
-        filename=filename,
-        format=raw["format"],
-        score=score,
-        findings=raw["findings"],
-        hidden_text=raw["hidden_text"],
-        annotated_image=raw["annotated_image"],
-        injection_matches=raw["injection_matches"],
-        summary=raw["summary"],
+    filename = file.filename or "documento"
+    job = jobs.create(user["uid"])
+    thread = threading.Thread(
+        target=_run_in_background,
+        args=(job, filename, data),
+        daemon=True,
     )
+    thread.start()
+    return {"job_id": job.id, "status": job.status}
+
+
+@router.get("/scan/{job_id}")
+def scan_status(
+    job_id: str,
+    user: dict = Depends(get_current_user),
+):
+    job = jobs.get(job_id, user["uid"])
+    if job is None:
+        raise HTTPException(status_code=404, detail="Trabalho de análise não encontrado")
+    payload = {
+        "job_id": job.id,
+        "status": job.status,
+        "progress": job.progress,
+    }
+    if job.status == "done":
+        payload["result"] = job.result
+    elif job.status == "error":
+        payload["error"] = job.error
+    return payload

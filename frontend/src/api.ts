@@ -21,6 +21,14 @@ export interface ScanResult {
   summary: Record<string, unknown>;
 }
 
+export interface ScanJobStatus {
+  job_id: string;
+  status: "processing" | "done" | "error";
+  progress: { percent: number; stage: string };
+  result?: ScanResult;
+  error?: string;
+}
+
 export interface Plan {
   name: string;
   slug: string;
@@ -74,7 +82,12 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
   if (opts.body && !(opts.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  const res = await fetch(`${API_BASE}/api${path}`, { ...opts, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api${path}`, { ...opts, headers });
+  } catch {
+    throw new ApiError(0, "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.");
+  }
   let data: unknown = null;
   try {
     data = await res.json();

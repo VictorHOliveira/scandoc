@@ -1,5 +1,6 @@
 import base64
 import io
+from typing import Callable, Optional
 
 from PIL import Image, ImageOps
 
@@ -8,6 +9,7 @@ from .common import finding, snippet
 
 TINY_BOX_HEIGHT = 16.0
 LOW_CONTRAST_DIFF = 25.0
+MAX_OCR_DIMENSION = 1600.0
 
 _engine = None
 _engine_checked = False
@@ -125,10 +127,15 @@ def _run_engine(engine, variant):
     return out
 
 
-def scan_image(filename: str, data: bytes) -> dict:
+def scan_image(filename: str, data: bytes, on_progress: Callable[[int, str], None] | None = None) -> dict:
     img = Image.open(io.BytesIO(data))
     if img.mode != "RGB":
         img = img.convert("RGB")
+
+    longest = max(img.size)
+    if longest > MAX_OCR_DIMENSION:
+        scale = MAX_OCR_DIMENSION / longest
+        img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
 
     engine = _get_ocr()
     findings: list[dict] = []
@@ -164,8 +171,19 @@ def scan_image(filename: str, data: bytes) -> dict:
     except Exception:
         variants = {"original": img}
 
+    variant_stages = [
+        ("original", 25, "OCR — passada 1 de 3 (original)"),
+        ("autocontrast", 50, "OCR — passada 2 de 3 (autocontraste)"),
+        ("inverted", 75, "OCR — passada 3 de 3 (invertida)"),
+    ]
+
     seen = set()
-    for name, variant in variants.items():
+    for idx, (name, stage_percent, stage_label) in enumerate(variant_stages):
+        variant = variants.get(name)
+        if variant is None:
+            continue
+        if on_progress:
+            on_progress(stage_percent, stage_label)
         try:
             result = _run_engine(engine, variant)
         except Exception:
@@ -176,6 +194,9 @@ def scan_image(filename: str, data: bytes) -> dict:
                 continue
             seen.add(key)
             word_records.append(w_)
+
+    if on_progress:
+        on_progress(90, "Analisando texto extraído")
 
     full_text = " ".join(w_["text"] for w_ in word_records)
     matches.extend(injection_scanner.scan_injection(full_text))
@@ -219,6 +240,9 @@ def scan_image(filename: str, data: bytes) -> dict:
 
     hidden_parts = [w_["text"] for w_ in word_records if w_["suspicious"]]
     annotated = _annotate(img.copy(), word_records)
+
+    if on_progress:
+        on_progress(100, "Concluído")
 
     return {
         "format": "image",

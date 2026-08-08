@@ -1,14 +1,18 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type ScanResult } from "../api";
+import { api, ApiError, type ScanJobStatus, type ScanResult } from "../api";
 import UploadZone from "../components/UploadZone";
 import ScoreGauge from "../components/ScoreGauge";
 import FindingsList from "../components/FindingsList";
 import HiddenTextViewer from "../components/HiddenTextViewer";
 import DocumentPreview from "../components/DocumentPreview";
+import ScanProgress from "../components/ScanProgress";
 import { useAuth } from "../context/AuthContext";
 
 type Tab = "findings" | "preview" | "hidden" | "injection";
+
+const POLL_INTERVAL_MS = 800;
+const POLL_MAX_ATTEMPTS = 600;
 
 export default function Scan() {
   const { me, refresh } = useAuth();
@@ -17,18 +21,36 @@ export default function Scan() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("findings");
   const [quotaExceeded, setQuotaExceeded] = useState(false);
+  const [progress, setProgress] = useState({ percent: 0, stage: "Enviando documento..." });
+
+  const pollJob = async (jobId: string) => {
+    for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const status = await api<ScanJobStatus>(`/scan/${jobId}`);
+      setProgress(status.progress);
+      if (status.status === "done" && status.result) {
+        setResult(status.result);
+        return;
+      }
+      if (status.status === "error") {
+        throw new Error(status.error ?? "Erro ao analisar o documento");
+      }
+    }
+    throw new Error("O tempo limite da análise foi excedido. Tente novamente.");
+  };
 
   const scan = async (file: File) => {
     setError("");
     setQuotaExceeded(false);
     setResult(null);
     setBusy(true);
+    setProgress({ percent: 0, stage: "Enviando documento..." });
     setTab("findings");
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await api<ScanResult>("/scan", { method: "POST", body: form });
-      setResult(res);
+      const started = await api<{ job_id: string }>("/scan", { method: "POST", body: form });
+      await pollJob(started.job_id);
       await refresh();
     } catch (e) {
       if (e instanceof ApiError && e.status === 429) {
@@ -73,7 +95,7 @@ export default function Scan() {
         </div>
       )}
 
-      {busy && <p className="muted">Processando... documentos grandes podem demorar um pouco.</p>}
+      {busy && <ScanProgress progress={progress} />}
 
       {result && !busy && (
         <div className="results">

@@ -1,5 +1,6 @@
 import base64
 import io
+from typing import Callable, Optional
 
 import fitz
 
@@ -70,7 +71,7 @@ def _annotate(doc: fitz.Document, flagged: dict[int, list[tuple[tuple[int, int, 
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
-def scan_pdf(filename: str, data: bytes) -> dict:
+def scan_pdf(filename: str, data: bytes, on_progress: Callable[[int, str], None] | None = None) -> dict:
     doc = fitz.open(stream=data, filetype="pdf")
     findings: list[dict] = []
     hidden_spans: list[str] = []
@@ -80,7 +81,10 @@ def scan_pdf(filename: str, data: bytes) -> dict:
     matches: list[str] = []
 
     try:
+        total_pages = max(len(doc), 1)
         for pno, page in enumerate(doc):
+            if on_progress:
+                on_progress(15 + int(60 * pno / total_pages), f"Analisando página {pno + 1} de {len(doc)}")
             bg = _page_background(page)
             image_boxes = [fitz.Rect(info["bbox"]) for info in page.get_image_info()]
             spans: list[dict] = []
@@ -215,6 +219,8 @@ def scan_pdf(filename: str, data: bytes) -> dict:
         hidden_joined = "\n".join(hidden_spans)
         full_text = "\n".join(full_text_parts)
 
+        if on_progress:
+            on_progress(80, "Procurando padrões de manipulação")
         matches.extend(injection_scanner.scan_injection(full_text))
         for m in injection_scanner.scan_injection(hidden_joined):
             if m not in matches:
@@ -244,7 +250,11 @@ def scan_pdf(filename: str, data: bytes) -> dict:
                     )
                 )
 
+        if on_progress:
+            on_progress(92, "Gerando imagem com destaques")
         annotated = _annotate(doc, flagged)
+        if on_progress:
+            on_progress(100, "Concluído")
         return {
             "format": "pdf",
             "findings": findings,

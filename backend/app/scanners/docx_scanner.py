@@ -1,4 +1,5 @@
 import io
+from typing import Callable, Optional
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -40,12 +41,14 @@ def _collect_runs(root) -> list[tuple]:
     return runs
 
 
-def scan_docx(filename: str, data: bytes) -> dict:
+def scan_docx(filename: str, data: bytes, on_progress: Callable[[int, str], None] | None = None) -> dict:
     import zipfile
 
     if not zipfile.is_zipfile(io.BytesIO(data)):
         raise ValueError("Arquivo não é um DOCX válido")
 
+    if on_progress:
+        on_progress(15, "Abrindo documento")
     doc = Document(io.BytesIO(data))
     findings: list[dict] = []
     hidden_parts: list[str] = []
@@ -114,12 +117,19 @@ def scan_docx(filename: str, data: bytes) -> dict:
                 hidden_parts.append(text)
 
     body_runs = _collect_runs(doc.element)
+    if on_progress:
+        on_progress(40, "Analisando parágrafos e caracteres")
     process_runs(body_runs, "corpo do documento")
 
+    if on_progress:
+        on_progress(70, "Verificando cabeçalhos e rodapés")
     for idx, section in enumerate(doc.sections):
         for header in (section.header, section.footer):
             if header is not None and header.is_linked_to_previous is False:
                 process_runs(_collect_runs(header._element), f"cabeçalho/rodapé #{idx + 1}")
+
+    if on_progress:
+        on_progress(85, "Procurando padrões de manipulação")
 
     hidden_joined = "\n".join(hidden_parts)
     full_text = "\n".join(full_text_parts)
@@ -139,6 +149,8 @@ def scan_docx(filename: str, data: bytes) -> dict:
                 )
             )
 
+    if on_progress:
+        on_progress(95, "Montando resultado")
     return {
         "format": "docx",
         "findings": findings,
