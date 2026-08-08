@@ -76,7 +76,7 @@ def test_injection_scanner():
 def test_pdf_scanner_finds_hidden_text():
     result = pdf_scanner.scan_pdf("evil.pdf", make_evil_pdf())
     kinds = {f["kind"] for f in result["findings"]}
-    assert "low_contrast" in kinds or "tiny_text" in kinds
+    assert "low_contrast" in kinds
     assert result["annotated_image"]
 
 

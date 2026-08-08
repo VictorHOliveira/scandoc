@@ -18,6 +18,8 @@ def _dist(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
 
 def _span_rgb(color: int) -> tuple[int, int, int]:
     r, g, b = fitz.sRGB_to_rgb(color)
+    if max(r, g, b) > 1.0:
+        return (round(r), round(g), round(b))
     return (round(r * 255), round(g * 255), round(b * 255))
 
 
