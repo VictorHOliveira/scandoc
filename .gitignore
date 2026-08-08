@@ -18,6 +18,7 @@ frontend/.env
 # Firebase
 firebase-debug.log
 firestore-debug.log
+frontend/.firebase/
 *.log
 
 # Editor
