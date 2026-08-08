@@ -53,7 +53,7 @@ export default function Scan() {
       await pollJob(started.job_id);
       await refresh();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 429) {
+      if (e instanceof ApiError && e.status === 429 && e.quota) {
         setQuotaExceeded(true);
       } else {
         setError(e instanceof Error ? e.message : "Erro ao analisar o documento");

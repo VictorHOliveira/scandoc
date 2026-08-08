@@ -1,10 +1,11 @@
 import threading
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 
 from ..core import db
 from ..core.config import MAX_UPLOAD_MB
 from ..core.jobs import jobs
+from ..core.ratelimit import scan_rate_limiter
 from ..scanners.common import compute_score
 from ..scanners.runner import run_scan
 from .deps import get_current_user, get_db
@@ -51,8 +52,17 @@ def _run_in_background(job, filename: str, data: bytes) -> None:
 @router.post("/scan")
 async def scan(
     file: UploadFile,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+    if not scan_rate_limiter.allow(f"{user['uid']}:{ip}"):
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas requisições em pouco tempo. Aguarde um instante e tente novamente.",
+        )
+
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Arquivo vazio")

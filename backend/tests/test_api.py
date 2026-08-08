@@ -1,3 +1,4 @@
+import time
 from unittest.mock import patch
 
 import pytest
@@ -8,6 +9,18 @@ from tests.fake_firestore import FakeFirestore
 
 fake = FakeFirestore()
 IDENTITY = {"uid": "uid-teste", "email": "teste@test.com", "name": "Teste"}
+
+
+def _poll_until_done(client, job_id, timeout=10.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = client.get(f"/api/scan/{job_id}", headers=AUTH)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        if body["status"] in ("done", "error"):
+            return body
+        time.sleep(0.1)
+    raise AssertionError("job não terminou a tempo")
 
 
 @pytest.fixture(scope="module")
@@ -75,10 +88,14 @@ def test_scan_and_quota(client):
         files={"file": ("curriculo.pdf", pdf, "application/pdf")},
     )
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["score"] > 0
-    assert body["injection_matches"]
-    assert body["annotated_image"]
+    started = r.json()
+    assert started["status"] == "processing"
+
+    done = _poll_until_done(client, started["job_id"])
+    assert done["status"] == "done", done
+    assert done["result"]["score"] > 0
+    assert done["result"]["injection_matches"]
+    assert done["result"]["annotated_image"]
 
     r2 = client.post(
         "/api/scan",

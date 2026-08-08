@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import auth_routes, payment_routes, plan_routes, routes
-from .core import db, firebase
+from .core import config, db, firebase
 
 logger = logging.getLogger("scandoc")
 
@@ -36,7 +36,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ScannerDocumento API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(
+    title="ScannerDocumento API",
+    version="0.2.0",
+    lifespan=lifespan,
+    docs_url="/docs" if config.ENABLE_DOCS else None,
+    redoc_url="/redoc" if config.ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if config.ENABLE_DOCS else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +52,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(plan_routes.router, prefix="/api/plans", tags=["plans"])
