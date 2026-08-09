@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { api, createCheckout, type Plan } from "../api";
+import { api, createCheckout, getSubscription, type Plan } from "../api";
 
 function limitLabel(limit: number | null): string {
   return limit === null ? "Ilimitado" : `${limit} por dia`;
@@ -17,8 +17,26 @@ export default function Pricing() {
   useEffect(() => {
     const payment = searchParams.get("payment");
     if (payment === "success") {
-      setMessage("Pagamento aprovado! Sua assinatura foi ativada.");
-      refresh();
+      const deadline = Date.now() + 20000;
+      const poll = async () => {
+        try {
+          const sub = await getSubscription();
+          if (sub.active) {
+            setMessage("Pagamento aprovado! Sua assinatura foi ativada.");
+            await refresh();
+            return;
+          }
+        } catch {
+          /* ignora e tenta de novo */
+        }
+        if (Date.now() < deadline) {
+          setTimeout(poll, 2500);
+        } else {
+          setMessage("Pagamento aprovado! A assinatura será ativada em instantes.");
+          refresh();
+        }
+      };
+      poll();
     } else if (payment === "pending") {
       setMessage("Pagamento pendente. Assim que confirmado, sua assinatura será ativada.");
     }
