@@ -52,6 +52,9 @@ PLANS = [
 PLANS_BY_SLUG = {p["slug"]: p for p in PLANS}
 
 
+PAID_PLAN_SLUGS = {"basico", "profissional", "avancado", "ilimitado"}
+
+
 def _now() -> datetime:
     return datetime.utcnow()
 
@@ -124,15 +127,18 @@ def get_active_plan(db: FirestoreClient, uid: str) -> dict:
     expires = _to_dt(user.get("plan_expires_at"))
     if expires is not None and expires < _now():
         slug = FREE_PLAN_SLUG
+    elif slug in PAID_PLAN_SLUGS and expires is None:
+        slug = FREE_PLAN_SLUG
     return get_plan(db, slug) or PLANS_BY_SLUG[FREE_PLAN_SLUG]
 
 
 def subscribe(db: FirestoreClient, uid: str, plan_slug: str) -> None:
     ref = _user_ref(db, uid)
+    expires = _now() + timedelta(days=SUBSCRIPTION_DAYS) if plan_slug in PAID_PLAN_SLUGS else None
     data = {
         "plan_slug": plan_slug,
         "plan_started_at": _now(),
-        "plan_expires_at": None,
+        "plan_expires_at": expires,
     }
     ref.set(data, merge=True)
 
@@ -241,6 +247,8 @@ def consume_quota(db: FirestoreClient, uid: str) -> tuple[bool, dict]:
         slug = user.get("plan_slug") or FREE_PLAN_SLUG
         expires = _to_dt(user.get("plan_expires_at"))
         if expires is not None and expires < now:
+            slug = FREE_PLAN_SLUG
+        elif slug in PAID_PLAN_SLUGS and expires is None:
             slug = FREE_PLAN_SLUG
         limit = (get_plan(db, slug) or PLANS_BY_SLUG[FREE_PLAN_SLUG]).get("daily_limit")
 
