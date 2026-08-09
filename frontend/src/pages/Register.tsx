@@ -9,7 +9,7 @@ function firebaseMessage(err: unknown): string {
     "auth/weak-password": "Senha muito fraca. Use pelo menos 6 caracteres.",
     "auth/invalid-email": "E-mail inválido.",
   };
-  return map[code] ?? "Erro ao cadastrar";
+  return map[code] ?? (code ? `Erro ao cadastrar (${code})` : "Erro ao cadastrar");
 }
 
 export default function Register() {

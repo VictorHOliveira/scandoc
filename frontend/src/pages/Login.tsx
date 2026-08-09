@@ -11,7 +11,7 @@ function firebaseMessage(err: unknown): string {
     "auth/too-many-requests": "Muitas tentativas. Tente novamente em alguns minutos.",
     "auth/invalid-email": "E-mail inválido.",
   };
-  return map[code] ?? "Erro ao entrar";
+  return map[code] ?? (code ? `Erro ao entrar (${code})` : "Erro ao entrar");
 }
 
 export default function Login() {
