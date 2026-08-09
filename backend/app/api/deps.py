@@ -19,8 +19,8 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
         identity = firebase.verify_token(token)
     except FirebaseNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Token inválido ou expirado: {exc}")
     fdb = get_db()
     return db.get_or_create_user(
         fdb, identity["uid"], identity.get("email") or "", identity.get("name") or ""
