@@ -17,7 +17,7 @@ import {
   type User as FirebaseUser,
 } from "firebase/auth";
 import { auth, firebaseConfigured } from "../firebase";
-import { api, type Me } from "../api";
+import { api, ApiError, type Me } from "../api";
 
 interface AuthContextValue {
   me: Me | null;
@@ -50,6 +50,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const fetchMe = useCallback(async (): Promise<Me | null> => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await api<Me>("/auth/me");
+      } catch (err) {
+        const retryable = err instanceof ApiError && (err.status === 0 || err.status === 401);
+        if (!retryable || attempt === 2) return null;
+        await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+      }
+    }
+    return null;
+  }, []);
+
   useEffect(() => {
     if (!auth) {
       setLoading(false);
@@ -58,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       setUser(fbUser);
       if (fbUser) {
-        api<Me>("/auth/me")
+        fetchMe()
           .then(setMe)
           .catch(() => setMe(null))
           .finally(() => setLoading(false));
@@ -68,24 +81,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => unsub();
-  }, []);
+  }, [fetchMe]);
 
   const login = useCallback(async (email: string, password: string) => {
     if (!auth) throw new Error("Firebase não configurado");
-    await signInWithEmailAndPassword(auth, email, password);
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+      setLoading(false);
+      throw e;
+    }
   }, []);
 
   const loginGoogle = useCallback(async () => {
     if (!auth) throw new Error("Firebase não configurado");
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    setLoading(true);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (e) {
+      setLoading(false);
+      throw e;
+    }
   }, []);
 
   const register = useCallback(
     async (name: string, email: string, password: string) => {
       if (!auth) throw new Error("Firebase não configurado");
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      if (name) {
-        await updateProfile(cred.user, { displayName: name });
+      setLoading(true);
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        if (name) {
+          await updateProfile(cred.user, { displayName: name });
+        }
+      } catch (e) {
+        setLoading(false);
+        throw e;
       }
     },
     []

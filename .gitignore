@@ -1,9 +1,11 @@
 # Python
 backend/.venv/
+e2e/.venv/
 __pycache__/
 *.pyc
 backend/app.db
 .pytest_cache/
+e2e/output/
 
 # Node
 frontend/node_modules/
