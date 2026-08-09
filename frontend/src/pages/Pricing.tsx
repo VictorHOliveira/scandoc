@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { api, type Plan } from "../api";
+import { api, createCheckout, type Plan } from "../api";
 
 function limitLabel(limit: number | null): string {
   return limit === null ? "Ilimitado" : `${limit} por dia`;
@@ -11,6 +12,17 @@ export default function Pricing() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [message, setMessage] = useState("");
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const payment = searchParams.get("payment");
+    if (payment === "success") {
+      setMessage("Pagamento aprovado! Sua assinatura foi ativada.");
+      refresh();
+    } else if (payment === "pending") {
+      setMessage("Pagamento pendente. Assim que confirmado, sua assinatura será ativada.");
+    }
+  }, [searchParams, refresh]);
 
   useEffect(() => {
     api<Plan[]>("/plans").then(setPlans).catch(() => setPlans([]));
@@ -20,12 +32,16 @@ export default function Pricing() {
     setMessage("");
     setBusySlug(plan.slug);
     try {
-      await api("/subscribe", {
-        method: "POST",
-        body: JSON.stringify({ plan_slug: plan.slug }),
-      });
-      setMessage(`Plano "${plan.name}" ativado!`);
-      await refresh();
+      const checkout = await createCheckout(plan.slug);
+      if (checkout.mock) {
+        setMessage(`Plano "${plan.name}" ativado! (modo de teste)`);
+        await refresh();
+      } else if (checkout.checkout_url) {
+        window.location.assign(checkout.checkout_url);
+        return;
+      } else {
+        setMessage("Não foi possível iniciar o pagamento.");
+      }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Erro ao assinar");
     } finally {
@@ -67,7 +83,7 @@ export default function Pricing() {
                   disabled={busySlug === p.slug}
                   onClick={() => subscribe(p)}
                 >
-                  {busySlug === p.slug ? "Ativando..." : "Assinar"}
+                  {busySlug === p.slug ? "Aguarde..." : "Assinar"}
                 </button>
               )}
             </div>
@@ -75,7 +91,7 @@ export default function Pricing() {
         })}
       </div>
       <p className="hint">
-        Pagamento simulado por enquanto — a assinatura é ativada imediatamente.
+        Assinatura mensal cobrada via Mercado Pago. Cancele quando quiser na página da conta.
       </p>
     </div>
   );

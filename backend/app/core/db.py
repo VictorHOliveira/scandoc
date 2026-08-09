@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from google.cloud.firestore import Client as FirestoreClient
 from google.cloud.firestore_v1.transaction import transactional
 
-from .config import FREE_PLAN_SLUG, QUOTA_WINDOW_HOURS
+from .config import FREE_PLAN_SLUG, QUOTA_WINDOW_HOURS, SUBSCRIPTION_DAYS
 from .firebase import get_firestore
 
 PLANS = [
@@ -135,6 +135,69 @@ def subscribe(db: FirestoreClient, uid: str, plan_slug: str) -> None:
         "plan_expires_at": None,
     }
     ref.set(data, merge=True)
+
+
+def activate_subscription(
+    db: FirestoreClient,
+    uid: str,
+    plan: dict,
+    provider_subscription_id: str | None = None,
+    provider: str = "mock",
+) -> None:
+    ref = _user_ref(db, uid)
+    now = _now()
+    existing = ref.get().to_dict() or {}
+    existing_expires = _to_dt(existing.get("plan_expires_at"))
+    base = existing_expires if existing_expires is not None and existing_expires > now else now
+    new_expires = base + timedelta(days=SUBSCRIPTION_DAYS)
+
+    ref.set(
+        {
+            "plan_slug": plan["slug"],
+            "plan_started_at": now,
+            "plan_expires_at": new_expires,
+            "subscription_id": provider_subscription_id,
+        },
+        merge=True,
+    )
+
+    db.collection("subscriptions").document(uid).set(
+        {
+            "uid": uid,
+            "provider": provider,
+            "preapproval_id": provider_subscription_id,
+            "plan_slug": plan["slug"],
+            "status": "active",
+            "period_start": now,
+            "period_end": new_expires,
+            "updated_at": now,
+        },
+        merge=True,
+    )
+
+
+def cancel_subscription(db: FirestoreClient, uid: str, provider: str = "mock") -> None:
+    ref = _user_ref(db, uid)
+    user = ref.get().to_dict() or {}
+    now = _now()
+    sub_ref = db.collection("subscriptions").document(uid)
+    sub_ref.set(
+        {
+            "uid": uid,
+            "provider": provider,
+            "preapproval_id": user.get("subscription_id"),
+            "plan_slug": user.get("plan_slug"),
+            "status": "cancelled",
+            "period_end": user.get("plan_expires_at"),
+            "updated_at": now,
+        },
+        merge=True,
+    )
+
+
+def get_subscription(db: FirestoreClient, uid: str) -> dict | None:
+    snap = db.collection("subscriptions").document(uid).get()
+    return snap.to_dict() if snap.exists else None
 
 
 def quota_status(db: FirestoreClient, uid: str) -> dict:

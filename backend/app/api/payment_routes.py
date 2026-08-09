@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..core import db
+from ..core.config import PAYMENT_PROVIDER
 from ..core.db import PLANS_BY_SLUG
-from ..schemas import PlanOut, SubscribeRequest
+from ..core.payments import PaymentsError, get_payments
+from ..schemas import CheckoutOut, PlanOut, SubscribeRequest, SubscriptionOut
 from .deps import get_current_user, get_db
 
 router = APIRouter()
+
+MOCK = PAYMENT_PROVIDER == "mock"
 
 
 @router.post("/subscribe")
@@ -15,6 +19,12 @@ def subscribe(body: SubscribeRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Plano não encontrado")
     if plan["slug"] == "free":
         raise HTTPException(status_code=400, detail="O plano gratuito não requer assinatura")
+
+    if not MOCK:
+        raise HTTPException(
+            status_code=400,
+            detail="Use POST /api/subscribe/checkout para assinar pelo provedor de pagamento",
+        )
 
     db.subscribe(get_db(), user["uid"], plan["slug"])
 
@@ -33,3 +43,87 @@ def subscribe(body: SubscribeRequest, user: dict = Depends(get_current_user)):
             sort_order=plan.get("sort_order", 0),
         ),
     }
+
+
+@router.post("/subscribe/checkout", response_model=CheckoutOut)
+def create_checkout(body: SubscribeRequest, user: dict = Depends(get_current_user)):
+    plan = PLANS_BY_SLUG.get(body.plan_slug)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+    if plan["slug"] == "free":
+        raise HTTPException(status_code=400, detail="O plano gratuito não requer assinatura")
+
+    db_ = get_db()
+    payments = get_payments()
+    try:
+        url = payments.create_checkout(
+            uid=user["uid"], email=user.get("email", ""), plan=plan
+        )
+    except PaymentsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if payments.name == "mock":
+        db.activate_subscription(db_, user["uid"], plan, provider="mock")
+        return CheckoutOut(checkout_url=url, mock=True)
+
+    return CheckoutOut(checkout_url=url, mock=False)
+
+
+@router.get("/subscription", response_model=SubscriptionOut)
+def get_subscription(user: dict = Depends(get_current_user)):
+    db_ = get_db()
+    plan = db.get_active_plan(db_, user["uid"])
+    if plan is None or plan["slug"] == "free":
+        return SubscriptionOut(active=False, plan_slug="free", status="none")
+
+    subscription = db.get_subscription(db_, user["uid"])
+    expires_at = _plan_expires_at(db_, user["uid"])
+    status = (subscription or {}).get("status", "active")
+    return SubscriptionOut(
+        active=True,
+        plan_slug=plan["slug"],
+        status=status,
+        period_end=expires_at.isoformat() if expires_at is not None else None,
+    )
+
+
+@router.post("/subscribe/cancel", response_model=SubscriptionOut)
+def cancel_subscription(user: dict = Depends(get_current_user)):
+    db_ = get_db()
+    subscription = db.get_subscription(db_, user["uid"]) or {}
+    if subscription.get("status") in ("cancelled", "expired"):
+        plan = db.get_active_plan(db_, user["uid"])
+        return SubscriptionOut(
+            active=bool(plan and plan["slug"] != "free"),
+            plan_slug=(plan or {}).get("slug", "free"),
+            status="cancelled",
+            period_end=_period_end_iso(db_, user["uid"]),
+        )
+
+    payments = get_payments()
+    preapproval_id = subscription.get("preapproval_id")
+    try:
+        if preapproval_id:
+            payments.cancel_subscription(preapproval_id)
+    except PaymentsError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    db.cancel_subscription(db_, user["uid"], provider=payments.name)
+
+    plan = db.get_active_plan(db_, user["uid"])
+    return SubscriptionOut(
+        active=bool(plan and plan["slug"] != "free"),
+        plan_slug=(plan or {}).get("slug", "free"),
+        status="cancelled",
+        period_end=_period_end_iso(db_, user["uid"]),
+    )
+
+
+def _plan_expires_at(db_, uid: str):
+    user = db.get_user(db_, uid) or {}
+    return db._to_dt(user.get("plan_expires_at"))
+
+
+def _period_end_iso(db_, uid: str) -> str | None:
+    dt = _plan_expires_at(db_, uid)
+    return dt.isoformat() if dt is not None else None

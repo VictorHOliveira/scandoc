@@ -52,6 +52,18 @@ export interface Me {
   quota: Quota;
 }
 
+export interface SubscriptionInfo {
+  active: boolean;
+  plan_slug: string;
+  status: string;
+  period_end: string | null;
+}
+
+export interface Checkout {
+  checkout_url: string | null;
+  mock: boolean;
+}
+
 export class ApiError extends Error {
   status: number;
   quota?: Quota;
@@ -109,4 +121,19 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     throw new ApiError(res.status, message, quota);
   }
   return data as T;
+}
+
+export function createCheckout(planSlug: string): Promise<Checkout> {
+  return api<Checkout>("/subscribe/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan_slug: planSlug }),
+  });
+}
+
+export function getSubscription(): Promise<SubscriptionInfo> {
+  return api<SubscriptionInfo>("/subscription");
+}
+
+export function cancelSubscription(): Promise<SubscriptionInfo> {
+  return api<SubscriptionInfo>("/subscribe/cancel", { method: "POST" });
 }

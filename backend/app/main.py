@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import auth_routes, payment_routes, plan_routes, routes
+from .api import auth_routes, payment_routes, plan_routes, routes, webhook_routes
 from .core import config, db, firebase
 
 logger = logging.getLogger("scandoc")
@@ -66,6 +66,7 @@ async def security_headers(request, call_next):
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(plan_routes.router, prefix="/api/plans", tags=["plans"])
 app.include_router(payment_routes.router, prefix="/api", tags=["subscriptions"])
+app.include_router(webhook_routes.router, prefix="/api", tags=["webhooks"])
 app.include_router(routes.router, prefix="/api", tags=["scan"])
 
 

@@ -119,3 +119,48 @@ def test_subscribe_upgrades_quota(client):
     assert me["quota"]["limit"] is None
 
     client.post("/api/subscribe", headers=AUTH, json={"plan_slug": "free"})
+
+
+def test_checkout_mock_activates(client):
+    fake._store[("users", "uid-teste")]["plan_slug"] = "free"
+    r = client.post(
+        "/api/subscribe/checkout", headers=AUTH, json={"plan_slug": "profissional"}
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["mock"] is True
+    assert "payment=mock-success" in body["checkout_url"]
+
+    sub = client.get("/api/subscription", headers=AUTH).json()
+    assert sub["active"] is True
+    assert sub["plan_slug"] == "profissional"
+    assert sub["status"] == "active"
+    assert sub["period_end"]
+
+
+def test_checkout_rejects_free(client):
+    r = client.post("/api/subscribe/checkout", headers=AUTH, json={"plan_slug": "free"})
+    assert r.status_code == 400
+
+
+def test_subscription_cancel_keeps_access(client):
+    sub = client.post("/api/subscribe/cancel", headers=AUTH).json()
+    assert sub["status"] == "cancelled"
+    assert sub["active"] is True
+    assert sub["period_end"]
+
+    me = client.get("/api/auth/me", headers=AUTH).json()
+    assert me["plan"]["slug"] == "profissional"
+
+
+def test_subscription_expiry_downgrades_to_free(client):
+    from datetime import timedelta
+
+    fake._store[("users", "uid-teste")]["plan_expires_at"] = db._now() - timedelta(days=1)
+    me = client.get("/api/auth/me", headers=AUTH).json()
+    assert me["plan"]["slug"] == "free"
+    sub = client.get("/api/subscription", headers=AUTH).json()
+    assert sub["active"] is False
+
+    fake._store[("users", "uid-teste")]["plan_expires_at"] = None
+    fake._store[("users", "uid-teste")]["plan_slug"] = "free"

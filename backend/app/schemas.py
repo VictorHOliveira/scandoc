@@ -57,3 +57,15 @@ class MeOut(BaseModel):
 
 class SubscribeRequest(BaseModel):
     plan_slug: str
+
+
+class CheckoutOut(BaseModel):
+    checkout_url: str | None = None
+    mock: bool = False
+
+
+class SubscriptionOut(BaseModel):
+    active: bool
+    plan_slug: str
+    status: str
+    period_end: str | None = None
