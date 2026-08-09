@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import time
 
 import firebase_admin
 from firebase_admin import auth as firebase_auth
@@ -11,6 +13,8 @@ from .config import (
     FIREBASE_EMULATOR_HOST,
     FIREBASE_PROJECT_ID,
 )
+
+logger = logging.getLogger("scandoc.firebase")
 
 _app = None
 _emulator_client = None
@@ -99,9 +103,19 @@ def get_firestore():
 def verify_token(token: str) -> dict:
     if _app is None:
         init_firebase()
-    decoded = firebase_auth.verify_id_token(token)
-    return {
-        "uid": decoded["uid"],
-        "email": decoded.get("email") or "",
-        "name": decoded.get("name") or decoded.get("email") or "",
-    }
+    for attempt in range(3):
+        try:
+            decoded = firebase_auth.verify_id_token(token)
+            return {
+                "uid": decoded["uid"],
+                "email": decoded.get("email") or "",
+                "name": decoded.get("name") or decoded.get("email") or "",
+            }
+        except ValueError:
+            raise
+        except Exception as exc:
+            if attempt == 2:
+                logger.error("Falha ao verificar token após retries: %r", exc)
+                raise
+            logger.warning("Falha transiente ao verificar token (tentativa %d): %r", attempt + 1, exc)
+            time.sleep(0.5 * (attempt + 1))
