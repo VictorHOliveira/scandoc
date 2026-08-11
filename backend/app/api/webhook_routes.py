@@ -1,12 +1,11 @@
 import logging
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
 
 from ..core import db
-from ..core.config import PAYMENT_PROVIDER
+from ..core.config import PAYMENT_PROVIDER, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 from ..core.db import PLANS_BY_SLUG
-from ..core.payments import get_payments
 from .deps import get_db
 
 logger = logging.getLogger("scandoc.webhook")
@@ -14,47 +13,145 @@ logger = logging.getLogger("scandoc.webhook")
 router = APIRouter()
 
 
-class MercadoPagoEvent(BaseModel):
-    type: str | None = None
-    action: str | None = None
-    data: dict | None = None
+def _to_dt(unix: int) -> datetime | None:
+    if not unix:
+        return None
+    return datetime.utcfromtimestamp(int(unix))
 
 
-@router.post("/webhooks/mercadopago")
-async def mercadopago_webhook(request: Request, event: MercadoPagoEvent, db_: Depends = get_db):
-    if PAYMENT_PROVIDER != "mercadopago":
+def _to_dict(obj):
+    return obj.to_dict() if hasattr(obj, "to_dict") else obj
+
+
+def _resolve_period_end(stripe, subscription_id: str, fallback) -> datetime:
+    if subscription_id:
+        try:
+            subscription = _to_dict(stripe.Subscription.retrieve(subscription_id))
+            period_end = _to_dt(subscription.get("current_period_end"))
+            if period_end:
+                return period_end
+        except Exception:
+            logger.warning("Falha ao buscar subscription %s", subscription_id)
+    return fallback
+
+
+def _metadata(obj: dict) -> dict:
+    return obj.get("metadata") or {}
+
+
+def _user_from_metadata(metadata: dict):
+    uid = metadata.get("uid")
+    plan = PLANS_BY_SLUG.get(metadata.get("plan_slug"))
+    return uid, plan
+
+
+def _on_checkout_completed(db_, stripe, session) -> None:
+    if session.get("mode") != "subscription":
+        return
+    if session.get("payment_status") not in ("paid", "no_payment_required"):
+        return
+    uid, plan = _user_from_metadata(_metadata(session))
+    if not uid or plan is None:
+        return
+    subscription_id = session.get("subscription")
+    period_end = _resolve_period_end(
+        stripe,
+        subscription_id,
+        db._now() + timedelta(days=db.SUBSCRIPTION_DAYS),
+    )
+    db.activate_subscription_period(
+        db_,
+        uid,
+        plan,
+        period_end,
+        provider_subscription_id=subscription_id,
+        provider="stripe",
+    )
+
+
+def _on_invoice_paid(db_, stripe, invoice) -> None:
+    subscription_id = invoice.get("subscription")
+    if not subscription_id:
+        return
+    try:
+        subscription = _to_dict(stripe.Subscription.retrieve(subscription_id))
+    except Exception as exc:
+        logger.error("Falha ao buscar subscription %s: %r", subscription_id, exc)
+        return
+    uid, plan = _user_from_metadata(_metadata(subscription))
+    if not uid or plan is None:
+        return
+    period_end = _to_dt(subscription.get("current_period_end"))
+    if period_end is None:
+        return
+    db.activate_subscription_period(
+        db_,
+        uid,
+        plan,
+        period_end,
+        provider_subscription_id=subscription_id,
+        provider="stripe",
+    )
+
+
+def _on_subscription_updated(db_, stripe, subscription) -> None:
+    uid, _ = _user_from_metadata(_metadata(subscription))
+    if not uid:
+        return
+    period_end = _to_dt(subscription.get("current_period_end"))
+    status = subscription.get("status")
+    cancel_at_period_end = bool(subscription.get("cancel_at_period_end"))
+    if status == "canceled" or cancel_at_period_end:
+        db.update_subscription_status(db_, uid, "cancelled", period_end=period_end)
+    elif status == "active":
+        db.update_subscription_status(db_, uid, "active", period_end=period_end)
+    else:
+        db.update_subscription_status(db_, uid, status, period_end=period_end)
+
+
+def _on_subscription_deleted(db_, stripe, subscription) -> None:
+    uid, _ = _user_from_metadata(_metadata(subscription))
+    if not uid:
+        return
+    period_end = _to_dt(subscription.get("current_period_end"))
+    db.update_subscription_status(db_, uid, "cancelled", period_end=period_end)
+
+
+_HANDLERS = {
+    "checkout.session.completed": _on_checkout_completed,
+    "invoice.paid": _on_invoice_paid,
+    "customer.subscription.updated": _on_subscription_updated,
+    "customer.subscription.deleted": _on_subscription_deleted,
+}
+
+
+@router.post("/webhooks/stripe")
+async def stripe_webhook(request: Request):
+    if PAYMENT_PROVIDER != "stripe":
         return {"status": "ignored"}
 
-    event_type = event.type or event.action
-    data = event.data or {}
-    resource_id = data.get("id") or data.get("preapproval_id") or data.get("subscription_id")
-    if not event_type or not resource_id:
-        return {"status": "invalid"}
+    import stripe
 
-    payments = get_payments()
-    resolved = payments.resolve_webhook(event_type, str(resource_id))
-    if not resolved:
-        return {"status": "unresolved"}
+    payload = await request.body()
+    sig_header = request.headers.get("Stripe-Signature")
+    if not sig_header:
+        raise HTTPException(status_code=400, detail="Header Stripe-Signature ausente")
 
-    if resolved["status"] != "approved":
-        logger.info(
-            "Webhook %s ignorado (status=%s, resource=%s)",
-            event_type,
-            resolved["status"],
-            resource_id,
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-        return {"status": "not_approved"}
+    except (ValueError, stripe.error.SignatureVerificationError):
+        raise HTTPException(status_code=400, detail="Assinatura do webhook inválida")
 
-    plan = PLANS_BY_SLUG.get(resolved["plan_slug"])
-    if plan is None or resolved["uid"] is None:
-        return {"status": "invalid_plan"}
+    event = _to_dict(event)
+    event_type = event.get("type")
+    handler = _HANDLERS.get(event_type)
+    if handler is None:
+        return {"status": "ignored", "type": event_type}
 
-    db.activate_subscription(
-        db_,
-        resolved["uid"],
-        plan,
-        provider_subscription_id=resolved.get("preapproval_id"),
-        provider="mercadopago",
-    )
-    logger.info("Assinatura ativada para %s (plano %s)", resolved["uid"], plan["slug"])
-    return {"status": "activated"}
+    stripe.api_key = STRIPE_SECRET_KEY
+    data = event.get("data", {}).get("object", {})
+    handler(get_db(), stripe, data)
+    logger.info("Webhook %s processado", event_type)
+    return {"status": "ok"}

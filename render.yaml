@@ -15,3 +15,19 @@ services:
         sync: false
       - key: CORS_ORIGINS
         value: https://scandoc-f29de.web.app,https://scandoc.qaoverflow.com
+      - key: PAYMENT_PROVIDER
+        value: stripe
+      - key: APP_BASE_URL
+        value: https://scandoc-f29de.web.app
+      - key: STRIPE_PRICE_BASICO
+        sync: false
+      - key: STRIPE_PRICE_PROFISSIONAL
+        sync: false
+      - key: STRIPE_PRICE_AVANCADO
+        sync: false
+      - key: STRIPE_PRICE_ILIMITADO
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false

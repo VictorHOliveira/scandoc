@@ -109,7 +109,7 @@ export default function Pricing() {
         })}
       </div>
       <p className="hint">
-        Assinatura mensal cobrada via Mercado Pago. Cancele quando quiser na página da conta.
+        Assinatura mensal cobrada via Stripe. Cancele quando quiser na página da conta.
       </p>
     </div>
   );

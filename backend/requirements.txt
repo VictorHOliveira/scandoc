@@ -7,7 +7,7 @@ python-docx>=1.1
 beautifulsoup4>=4.12
 Pillow>=10.4
 firebase-admin>=6.6
-mercadopago>=3.4.0
+stripe>=8.0
 python-dotenv>=1.0
 rapidocr==3.9.2
 onnxruntime==1.28.0

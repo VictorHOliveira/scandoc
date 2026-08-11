@@ -29,6 +29,8 @@ def client():
         patch("app.core.firebase.verify_token", return_value=IDENTITY),
         patch("app.core.db.get_firestore", return_value=fake),
         patch("app.main.firebase.init_firebase", return_value=None),
+        patch("app.api.payment_routes.MOCK", True),
+        patch("app.core.payments.PAYMENT_PROVIDER", "mock"),
     ]
     for p in patchers:
         p.start()

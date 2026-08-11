@@ -206,6 +206,68 @@ def get_subscription(db: FirestoreClient, uid: str) -> dict | None:
     return snap.to_dict() if snap.exists else None
 
 
+def activate_subscription_period(
+    db: FirestoreClient,
+    uid: str,
+    plan: dict,
+    period_end: datetime,
+    provider_subscription_id: str | None = None,
+    provider: str = "stripe",
+) -> None:
+    ref = _user_ref(db, uid)
+    now = _now()
+    existing = ref.get().to_dict() or {}
+    ref.set(
+        {
+            "plan_slug": plan["slug"],
+            "plan_started_at": existing.get("plan_started_at") or now,
+            "plan_expires_at": period_end,
+            "subscription_id": provider_subscription_id,
+        },
+        merge=True,
+    )
+
+    db.collection("subscriptions").document(uid).set(
+        {
+            "uid": uid,
+            "provider": provider,
+            "preapproval_id": provider_subscription_id,
+            "plan_slug": plan["slug"],
+            "status": "active",
+            "period_start": now,
+            "period_end": period_end,
+            "updated_at": now,
+        },
+        merge=True,
+    )
+
+
+def update_subscription_status(
+    db: FirestoreClient,
+    uid: str,
+    status: str,
+    period_end: datetime | None = None,
+    provider: str = "stripe",
+) -> None:
+    ref = _user_ref(db, uid)
+    now = _now()
+    user = ref.get().to_dict() or {}
+    if period_end is not None:
+        ref.update({"plan_expires_at": period_end})
+    db.collection("subscriptions").document(uid).set(
+        {
+            "uid": uid,
+            "provider": provider,
+            "preapproval_id": user.get("subscription_id"),
+            "plan_slug": user.get("plan_slug"),
+            "status": status,
+            "period_end": period_end if period_end is not None else user.get("plan_expires_at"),
+            "updated_at": now,
+        },
+        merge=True,
+    )
+
+
 def quota_status(db: FirestoreClient, uid: str) -> dict:
     user = get_user(db, uid) or {}
     plan = get_active_plan(db, uid)
