@@ -26,3 +26,6 @@ frontend/.firebase/
 # Editor
 .vscode/
 .idea/
+
+# Local test docs
+testdocs/
