@@ -96,10 +96,14 @@ export async function api<T>(path: string, opts: RequestInit = {}): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
   let res: Response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
   try {
-    res = await fetch(`${API_BASE}/api${path}`, { ...opts, headers });
+    res = await fetch(`${API_BASE}/api${path}`, { ...opts, headers, signal: controller.signal });
   } catch {
     throw new ApiError(0, "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.");
+  } finally {
+    clearTimeout(timer);
   }
   let data: unknown = null;
   try {
