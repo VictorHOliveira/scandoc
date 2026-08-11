@@ -95,7 +95,7 @@ def _on_invoice_paid(db_, stripe, invoice) -> None:
 
 
 def _on_subscription_updated(db_, stripe, subscription) -> None:
-    uid, _ = _user_from_metadata(_metadata(subscription))
+    uid, plan = _user_from_metadata(_metadata(subscription))
     if not uid:
         return
     period_end = _to_dt(subscription.get("current_period_end"))
@@ -103,8 +103,15 @@ def _on_subscription_updated(db_, stripe, subscription) -> None:
     cancel_at_period_end = bool(subscription.get("cancel_at_period_end"))
     if status == "canceled" or cancel_at_period_end:
         db.update_subscription_status(db_, uid, "cancelled", period_end=period_end)
-    elif status == "active":
-        db.update_subscription_status(db_, uid, "active", period_end=period_end)
+    elif status == "active" and plan is not None and period_end is not None:
+        db.activate_subscription_period(
+            db_,
+            uid,
+            plan,
+            period_end,
+            provider_subscription_id=subscription.get("id"),
+            provider="stripe",
+        )
     else:
         db.update_subscription_status(db_, uid, status, period_end=period_end)
 

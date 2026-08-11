@@ -165,6 +165,154 @@ def test_subscription_updated_cancel_at_period_end_marks_cancelled(client):
     assert sub["status"] == "cancelled"
 
 
+def test_subscription_updated_switch_changes_plan(client):
+    _seed_user(plan_slug="basico")
+    future_ts = _future_ts(20)
+    subscription_obj = {
+        "metadata": {"uid": "uid-stripe", "plan_slug": "ilimitado"},
+        "status": "active",
+        "cancel_at_period_end": False,
+        "current_period_end": future_ts,
+        "id": "sub_1",
+    }
+    r = _post(client, _event("customer.subscription.updated", subscription_obj))
+    assert r.status_code == 200
+
+    user = fake._store[("users", "uid-stripe")]
+    assert user["plan_slug"] == "ilimitado"
+    assert user["plan_expires_at"] == datetime.utcfromtimestamp(future_ts)
+
+    sub = fake._store[("subscriptions", "uid-stripe")]
+    assert sub["status"] == "active"
+    assert sub["preapproval_id"] == "sub_1"
+
+
+class _FakeStripeSubscription:
+    def get(self, key, default=None):
+        if key == "items":
+            return {"data": [{"id": "si_1"}]}
+        return default
+
+
+def test_stripe_switch_subscription_changes_price_and_metadata():
+    plan = db.PLANS_BY_SLUG["avancado"]
+    modified = {"id": "sub_1", "current_period_end": 12345}
+    calls = {}
+
+    def _retrieve(sid):
+        return _FakeStripeSubscription()
+
+    def _modify(sid, **kwargs):
+        calls.update(kwargs)
+        return modified
+
+    fake_prices = {
+        "basico": "price_basico",
+        "profissional": "price_prof",
+        "avancado": "price_avancado",
+        "ilimitado": "price_ilimitado",
+    }
+    with patch("stripe.Subscription.retrieve", side_effect=_retrieve), patch(
+        "stripe.Subscription.modify", side_effect=_modify
+    ), patch("app.core.payments.STRIPE_PRICES", fake_prices):
+        payments = StripePayments("sk_test_xyz")
+        result = payments.switch_subscription("sub_1", "uid-a", plan)
+
+    assert result == modified
+    assert calls["items"] == [{"id": "si_1", "price": "price_avancado"}]
+    assert calls["metadata"] == {"uid": "uid-a", "plan_slug": "avancado"}
+    assert calls["cancel_at_period_end"] is False
+
+
+class _FakeSwitchPayments:
+    name = "stripe"
+    switch_calls = None
+    switch_result = None
+
+    def switch_subscription(self, subscription_id, uid, plan):
+        self.switch_calls = (subscription_id, uid, plan)
+        return self.switch_result
+
+
+def test_checkout_switches_existing_subscription(client):
+    fake._store[("users", "uid-stripe")] = {
+        "uid": "uid-stripe",
+        "email": "stripe@test.com",
+        "name": "Stripe Test",
+        "plan_slug": "basico",
+        "plan_expires_at": None,
+        "subscription_id": "sub_1",
+    }
+    fake._store[("subscriptions", "uid-stripe")] = {
+        "uid": "uid-stripe",
+        "provider": "stripe",
+        "status": "active",
+        "preapproval_id": "sub_1",
+        "plan_slug": "basico",
+        "period_end": None,
+        "updated_at": None,
+    }
+
+    future_ts = _future_ts(40)
+    payments = _FakeSwitchPayments()
+    payments.switch_result = {"current_period_end": future_ts}
+
+    with patch("app.api.payment_routes.get_payments", return_value=payments):
+        r = client.post(
+            "/api/subscribe/checkout",
+            headers={"Authorization": "Bearer fake-token"},
+            json={"plan_slug": "ilimitado"},
+        )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["switched"] is True
+    assert payments.switch_calls == (
+        "sub_1",
+        "uid-stripe",
+        db.PLANS_BY_SLUG["ilimitado"],
+    )
+
+    user = fake._store[("users", "uid-stripe")]
+    assert user["plan_slug"] == "ilimitado"
+    assert user["plan_expires_at"] == datetime.utcfromtimestamp(future_ts)
+
+    sub = fake._store[("subscriptions", "uid-stripe")]
+    assert sub["status"] == "active"
+    assert sub["preapproval_id"] == "sub_1"
+
+
+def test_checkout_switch_rejects_same_plan(client):
+    fake._store[("users", "uid-stripe")] = {
+        "uid": "uid-stripe",
+        "email": "stripe@test.com",
+        "name": "Stripe Test",
+        "plan_slug": "basico",
+        "plan_expires_at": datetime.utcnow() + timedelta(days=40),
+        "subscription_id": "sub_1",
+    }
+    fake._store[("subscriptions", "uid-stripe")] = {
+        "uid": "uid-stripe",
+        "provider": "stripe",
+        "status": "active",
+        "preapproval_id": "sub_1",
+        "plan_slug": "basico",
+        "period_end": None,
+        "updated_at": None,
+    }
+
+    payments = _FakeSwitchPayments()
+    with patch("app.api.payment_routes.get_payments", return_value=payments):
+        r = client.post(
+            "/api/subscribe/checkout",
+            headers={"Authorization": "Bearer fake-token"},
+            json={"plan_slug": "basico"},
+        )
+
+    assert r.status_code == 400
+    assert payments.switch_calls is None
+
+
 def test_subscription_deleted_marks_cancelled(client):
     _seed_user(plan_slug="ilimitado")
     future_ts = _future_ts(10)

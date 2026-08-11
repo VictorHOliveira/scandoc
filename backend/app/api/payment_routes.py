@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta
 
 from ..core import db
 from ..core.config import PAYMENT_PROVIDER
@@ -55,6 +56,35 @@ def create_checkout(body: SubscribeRequest, user: dict = Depends(get_current_use
 
     db_ = get_db()
     payments = get_payments()
+
+    if payments.name == "stripe":
+        subscription = db.get_subscription(db_, user["uid"]) or {}
+        is_stripe_active = (
+            subscription.get("provider") == "stripe"
+            and subscription.get("status") == "active"
+            and bool(subscription.get("preapproval_id"))
+        )
+        if is_stripe_active:
+            current_plan = db.get_active_plan(db_, user["uid"])
+            if current_plan["slug"] == plan["slug"]:
+                raise HTTPException(status_code=400, detail="Você já está neste plano.")
+            try:
+                modified = payments.switch_subscription(
+                    subscription["preapproval_id"], user["uid"], plan
+                )
+            except PaymentsError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            period_end = _period_end_from_stripe(modified)
+            db.activate_subscription_period(
+                db_,
+                user["uid"],
+                plan,
+                period_end,
+                provider_subscription_id=subscription["preapproval_id"],
+                provider="stripe",
+            )
+            return CheckoutOut(checkout_url=None, switched=True)
+
     try:
         url = payments.create_checkout(
             uid=user["uid"], email=user.get("email", ""), plan=plan
@@ -122,6 +152,13 @@ def cancel_subscription(user: dict = Depends(get_current_user)):
 def _plan_expires_at(db_, uid: str):
     user = db.get_user(db_, uid) or {}
     return db._to_dt(user.get("plan_expires_at"))
+
+
+def _period_end_from_stripe(subscription) -> datetime:
+    raw = getattr(subscription, "current_period_end", None)
+    if raw is None and isinstance(subscription, dict):
+        raw = subscription.get("current_period_end")
+    return datetime.utcfromtimestamp(int(raw)) if raw else db._now() + timedelta(days=db.SUBSCRIPTION_DAYS)
 
 
 def _period_end_iso(db_, uid: str) -> str | None:

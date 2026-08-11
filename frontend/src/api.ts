@@ -62,6 +62,7 @@ export interface SubscriptionInfo {
 export interface Checkout {
   checkout_url: string | null;
   mock: boolean;
+  switched?: boolean;
 }
 
 export class ApiError extends Error {

@@ -94,6 +94,30 @@ class StripePayments:
             )
             raise PaymentsError("Não foi possível cancelar a assinatura no Stripe") from exc
 
+    def switch_subscription(self, subscription_id: str, uid: str, plan: dict):
+        if not subscription_id:
+            raise PaymentsError("Assinatura Stripe não encontrada para a troca de plano")
+        try:
+            current = self._stripe.Subscription.retrieve(subscription_id)
+            items = (current.get("items") or {}).get("data") or []
+            if not items:
+                raise PaymentsError(
+                    "Assinatura sem itens; cancele e assine novamente o plano desejado"
+                )
+            return self._stripe.Subscription.modify(
+                subscription_id,
+                items=[{"id": items[0]["id"], "price": self._price_id(plan["slug"])}],
+                metadata={"uid": uid, "plan_slug": plan["slug"]},
+                cancel_at_period_end=False,
+            )
+        except PaymentsError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Erro ao trocar de plano na assinatura %s: %r", subscription_id, exc
+            )
+            raise PaymentsError("Não foi possível trocar de plano no Stripe") from exc
+
 
 def get_payments():
     if PAYMENT_PROVIDER != "stripe":

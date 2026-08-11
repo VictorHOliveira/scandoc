@@ -54,6 +54,9 @@ export default function Pricing() {
       if (checkout.mock) {
         setMessage(`Plano "${plan.name}" ativado! (modo de teste)`);
         await refresh();
+      } else if (checkout.switched) {
+        setMessage(`Plano trocado para "${plan.name}".`);
+        await refresh();
       } else if (checkout.checkout_url) {
         window.location.assign(checkout.checkout_url);
         return;

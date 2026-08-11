@@ -62,6 +62,7 @@ class SubscribeRequest(BaseModel):
 class CheckoutOut(BaseModel):
     checkout_url: str | None = None
     mock: bool = False
+    switched: bool = False
 
 
 class SubscriptionOut(BaseModel):
