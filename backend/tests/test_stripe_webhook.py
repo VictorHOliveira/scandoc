@@ -191,8 +191,12 @@ class _FakeStripeItem:
     id = "si_1"
 
 
+class _FakeStripeItems:
+    data = [_FakeStripeItem()]
+
+
 class _FakeStripeSubscription:
-    items = [_FakeStripeItem()]
+    items = _FakeStripeItems()
 
 
 def test_stripe_switch_subscription_changes_price_and_metadata():
