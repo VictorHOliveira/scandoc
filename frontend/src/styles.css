@@ -605,6 +605,46 @@ input {
   width: 100%;
 }
 
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+}
+
+.modal p {
+  color: var(--text);
+  margin: 0 0 20px;
+}
+
+.modal p.muted {
+  margin-top: -12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 /* Account */
 .account-page h2 {
   text-align: center;

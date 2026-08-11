@@ -221,6 +221,7 @@ def activate_subscription_period(
         {
             "plan_slug": plan["slug"],
             "plan_started_at": existing.get("plan_started_at") or now,
+            "plan_changed_at": now,
             "plan_expires_at": period_end,
             "subscription_id": provider_subscription_id,
         },

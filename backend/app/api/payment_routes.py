@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timedelta
 
 from ..core import db
-from ..core.config import PAYMENT_PROVIDER
+from ..core.config import PAYMENT_PROVIDER, PLAN_CHANGE_LOCK_DAYS
 from ..core.db import PLANS_BY_SLUG
 from ..core.payments import PaymentsError, get_payments
 from ..schemas import CheckoutOut, PlanOut, SubscribeRequest, SubscriptionOut
@@ -68,6 +68,8 @@ def create_checkout(body: SubscribeRequest, user: dict = Depends(get_current_use
             current_plan = db.get_active_plan(db_, user["uid"])
             if current_plan["slug"] == plan["slug"]:
                 raise HTTPException(status_code=400, detail="Você já está neste plano.")
+            if plan["sort_order"] < current_plan["sort_order"]:
+                _ensure_downgrade_allowed(db_, user["uid"])
             try:
                 modified = payments.switch_subscription(
                     subscription["preapproval_id"], user["uid"], plan
@@ -164,3 +166,20 @@ def _period_end_from_stripe(subscription) -> datetime:
 def _period_end_iso(db_, uid: str) -> str | None:
     dt = _plan_expires_at(db_, uid)
     return dt.isoformat() if dt is not None else None
+
+
+def _ensure_downgrade_allowed(db_, uid: str) -> None:
+    user = db.get_user(db_, uid) or {}
+    changed_at = db._to_dt(user.get("plan_changed_at"))
+    if changed_at is None:
+        return
+    locked_until = changed_at + timedelta(days=PLAN_CHANGE_LOCK_DAYS)
+    if db._now() < locked_until:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Você trocou de plano em "
+                f"{changed_at.strftime('%d/%m/%Y')}. Poderá reduzir o plano "
+                f"a partir de {locked_until.strftime('%d/%m/%Y')}."
+            ),
+        )

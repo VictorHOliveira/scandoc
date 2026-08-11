@@ -12,6 +12,7 @@ export default function Pricing() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [message, setMessage] = useState("");
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -46,7 +47,14 @@ export default function Pricing() {
     api<Plan[]>("/plans").then(setPlans).catch(() => setPlans([]));
   }, []);
 
-  const subscribe = async (plan: Plan) => {
+  const subscribe = (plan: Plan) => {
+    setPendingPlan(plan);
+  };
+
+  const confirmSubscribe = async () => {
+    if (!pendingPlan) return;
+    const plan = pendingPlan;
+    setPendingPlan(null);
     setMessage("");
     setBusySlug(plan.slug);
     try {
@@ -114,6 +122,31 @@ export default function Pricing() {
       <p className="hint">
         Assinatura mensal cobrada via Stripe. Cancele quando quiser na página da conta.
       </p>
+      {pendingPlan && (
+        <div className="modal-overlay" onClick={() => setPendingPlan(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Trocar de plano?</h3>
+            <p>
+              Ao trocar para <strong>{pendingPlan.name}</strong>, a próxima
+              cobrança será de <strong>R$ {pendingPlan.price_brl}/mês</strong>.
+            </p>
+            {pendingPlan.sort_order > (me?.plan.sort_order ?? 0) && (
+              <p className="muted">
+                A diferença proporcional do período atual será cobrada
+                imediatamente.
+              </p>
+            )}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setPendingPlan(null)}>
+                Cancelar
+              </button>
+              <button className="btn btn-primary" onClick={confirmSubscribe}>
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
