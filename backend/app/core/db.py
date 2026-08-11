@@ -36,7 +36,7 @@ PLANS = [
         "name": "Avançado",
         "description": "20 análises por dia.",
         "daily_limit": 20,
-        "price_brl": "49.90",
+        "price_brl": "54.90",
         "sort_order": 3,
     },
     {
