@@ -1,11 +1,15 @@
 import { useEffect } from "react";
-import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Scan from "./pages/Scan";
 import Pricing from "./pages/Pricing";
 import Account from "./pages/Account";
+import HowItWorks from "./pages/HowItWorks";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Refunds from "./pages/Refunds";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { me, loading } = useAuth();
@@ -53,6 +57,7 @@ function Navbar() {
         <NavLink to="/" end>
           Analisar
         </NavLink>
+        <NavLink to="/como-funciona">Como funciona</NavLink>
         <NavLink to="/planos">Planos</NavLink>
         {me ? (
           <>
@@ -93,6 +98,10 @@ function AppRoutes() {
       />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/como-funciona" element={<HowItWorks />} />
+      <Route path="/termos" element={<Terms />} />
+      <Route path="/privacidade" element={<Privacy />} />
+      <Route path="/reembolsos" element={<Refunds />} />
       <Route path="/planos" element={<Pricing />} />
       <Route
         path="/conta"
@@ -114,7 +123,16 @@ export default function App() {
         <AppRoutes />
       </main>
       <footer className="footer">
-        ScanDoc detecta texto oculto, microtexto e instruções escondidas para IA em documentos.
+        <div className="footer-links">
+          <Link to="/como-funciona">Como funciona</Link>
+          <Link to="/planos">Planos</Link>
+          <Link to="/termos">Termos de Uso</Link>
+          <Link to="/privacidade">Privacidade</Link>
+          <Link to="/reembolsos">Reembolsos</Link>
+        </div>
+        <p className="footer-note">
+          ScanDoc detecta texto oculto, microtexto e instruções escondidas para IA em documentos.
+        </p>
       </footer>
     </AuthProvider>
   );

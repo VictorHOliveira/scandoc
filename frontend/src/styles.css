@@ -131,6 +131,26 @@ input {
   background: var(--surface);
 }
 
+.footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.footer-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  color: var(--link-hover);
+}
+
+.footer-note {
+  margin: 10px 0 0;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -668,4 +688,44 @@ input {
   overflow-x: auto;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* Static / legal pages */
+.static-page h2 {
+  text-align: center;
+}
+
+.static-page .updated-at {
+  text-align: center;
+  margin-top: -8px;
+}
+
+.static-card {
+  padding: 28px 32px;
+}
+
+.static-card h3 {
+  margin: 26px 0 8px;
+  color: var(--heading-secondary);
+  font-size: 17px;
+}
+
+.static-card h3:first-child {
+  margin-top: 0;
+}
+
+.static-card p,
+.static-card li {
+  color: var(--text);
+  font-size: 14.5px;
+}
+
+.static-card ul,
+.static-card ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+
+.static-card li {
+  margin: 4px 0;
 }
