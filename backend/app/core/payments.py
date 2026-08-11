@@ -99,14 +99,14 @@ class StripePayments:
             raise PaymentsError("Assinatura Stripe não encontrada para a troca de plano")
         try:
             current = self._stripe.Subscription.retrieve(subscription_id)
-            items = (current.get("items") or {}).get("data") or []
+            items = current.items
             if not items:
                 raise PaymentsError(
                     "Assinatura sem itens; cancele e assine novamente o plano desejado"
                 )
             return self._stripe.Subscription.modify(
                 subscription_id,
-                items=[{"id": items[0]["id"], "price": self._price_id(plan["slug"])}],
+                items=[{"id": items[0].id, "price": self._price_id(plan["slug"])}],
                 metadata={"uid": uid, "plan_slug": plan["slug"]},
                 cancel_at_period_end=False,
             )

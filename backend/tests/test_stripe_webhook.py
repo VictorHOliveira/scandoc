@@ -187,11 +187,12 @@ def test_subscription_updated_switch_changes_plan(client):
     assert sub["preapproval_id"] == "sub_1"
 
 
+class _FakeStripeItem:
+    id = "si_1"
+
+
 class _FakeStripeSubscription:
-    def get(self, key, default=None):
-        if key == "items":
-            return {"data": [{"id": "si_1"}]}
-        return default
+    items = [_FakeStripeItem()]
 
 
 def test_stripe_switch_subscription_changes_price_and_metadata():
