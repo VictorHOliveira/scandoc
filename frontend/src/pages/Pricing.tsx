@@ -90,7 +90,12 @@ export default function Pricing() {
           const current = me?.plan.slug === p.slug;
           const featured = p.slug === "profissional";
           return (
-            <div key={p.slug} className={`plan-card card${featured ? " featured" : ""}`}>
+            <div
+              key={p.slug}
+              className={`plan-card card${featured ? " featured" : ""}${
+                searchParams.get("destaque") === p.slug ? " highlighted" : ""
+              }`}
+            >
               <h3>{p.name}</h3>
               <p className="plan-limit">{limitLabel(p.daily_limit)}</p>
               <p className="plan-price">

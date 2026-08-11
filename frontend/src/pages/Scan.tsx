@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type ScanJobStatus, type ScanResult } from "../api";
+import { api, ApiError, createShare, type ScanJobStatus, type ScanResult } from "../api";
 import UploadZone from "../components/UploadZone";
 import ScoreGauge from "../components/ScoreGauge";
 import FindingsList from "../components/FindingsList";
@@ -17,11 +17,15 @@ const POLL_MAX_ATTEMPTS = 600;
 export default function Scan() {
   const { me, refresh } = useAuth();
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("findings");
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [progress, setProgress] = useState({ percent: 0, stage: "Enviando documento..." });
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState("");
 
   const pollJob = async (jobId: string) => {
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
@@ -43,6 +47,9 @@ export default function Scan() {
     setError("");
     setQuotaExceeded(false);
     setResult(null);
+    setJobId(null);
+    setShareLink(null);
+    setShareError("");
     setBusy(true);
     setProgress({ percent: 0, stage: "Enviando documento..." });
     setTab("findings");
@@ -50,6 +57,7 @@ export default function Scan() {
       const form = new FormData();
       form.append("file", file);
       const started = await api<{ job_id: string }>("/scan", { method: "POST", body: form });
+      setJobId(started.job_id);
       await pollJob(started.job_id);
       await refresh();
     } catch (e) {
@@ -60,6 +68,26 @@ export default function Scan() {
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const share = async () => {
+    if (!jobId) return;
+    setShareBusy(true);
+    setShareError("");
+    try {
+      const { share_id } = await createShare(jobId);
+      const link = `${window.location.origin}/compartilhado/${share_id}`;
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch {
+        /* clipboard indisponível: o link é exibido na tela */
+      }
+      setShareLink(link);
+    } catch (e) {
+      setShareError(e instanceof Error ? e.message : "Erro ao gerar o link");
+    } finally {
+      setShareBusy(false);
     }
   };
 
@@ -83,15 +111,28 @@ export default function Scan() {
 
       <UploadZone onScan={scan} busy={busy} />
 
-      {error && (
+      {error && !quotaExceeded && (
         <div className="error-box">
           {error}
-          {quotaExceeded && (
-            <span>
-              {" "}
-              <Link to="/planos">Assine um plano para analisar mais.</Link>
-            </span>
-          )}
+        </div>
+      )}
+
+      {quotaExceeded && (
+        <div className="card upgrade-cta">
+          <h3>Limite diário de análises atingido</h3>
+          <p className="muted">
+            O plano gratuito inclui <strong>1 análise por dia</strong>. O plano{" "}
+            <strong>Básico</strong> libera <strong>5 análises por dia</strong> por apenas{" "}
+            <strong>R$ 19,90/mês</strong> — e você pode cancelar quando quiser.
+          </p>
+          <div className="upgrade-cta-actions">
+            <Link to="/planos" className="btn btn-primary">
+              Ver planos
+            </Link>
+            <Link to="/planos?destaque=basico" className="btn">
+              Assinar Básico
+            </Link>
+          </div>
         </div>
       )}
 
@@ -105,6 +146,20 @@ export default function Scan() {
               <p className="muted">
                 Formato: {result.format.toUpperCase()} · {result.findings.length} achado(s)
               </p>
+              <div className="share-row">
+                <button className="btn" onClick={share} disabled={shareBusy}>
+                  {shareBusy ? "Gerando link..." : "🔗 Compartilhar relatório"}
+                </button>
+                {shareError && <span className="error-inline">{shareError}</span>}
+                {shareLink && (
+                  <span className="success-inline">
+                    Link copiado! Qualquer pessoa pode abrir:{" "}
+                    <a href={shareLink} target="_blank" rel="noreferrer">
+                      ver relatório
+                    </a>
+                  </span>
+                )}
+              </div>
             </div>
             <ScoreGauge score={result.score} />
           </div>
@@ -140,6 +195,21 @@ export default function Scan() {
               </ul>
             )}
           </div>
+
+          {me?.plan.slug === "free" && (
+            <div className="card cta-strip">
+              <div>
+                <strong>Gostou da análise?</strong>
+                <p className="muted">
+                  Com o plano Básico você faz <strong>5 análises por dia</strong> por{" "}
+                  <strong>R$ 19,90/mês</strong>.
+                </p>
+              </div>
+              <Link to="/planos?destaque=basico" className="btn btn-primary">
+                Desbloquear mais análises
+              </Link>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -59,12 +59,20 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
+def now() -> datetime:
+    return _now()
+
+
 def _to_dt(value) -> datetime | None:
     if value is None:
         return None
     if hasattr(value, "timestamp"):
         return datetime.utcfromtimestamp(value.timestamp())
     return value
+
+
+def to_dt(value) -> datetime | None:
+    return _to_dt(value)
 
 
 def seed_plans(db: FirestoreClient) -> None:
@@ -353,3 +361,20 @@ def log_scan(db: FirestoreClient, uid: str, filename: str, format: str, score: i
             "score": score,
         }
     )
+
+
+def save_share(db: FirestoreClient, share_id: str, uid: str, result: dict, expires_at: datetime) -> None:
+    db.collection("shares").document(share_id).set(
+        {
+            "id": share_id,
+            "uid": uid,
+            "created_at": _now(),
+            "expires_at": expires_at,
+            "result": result,
+        }
+    )
+
+
+def fetch_share(db: FirestoreClient, share_id: str) -> dict | None:
+    snap = db.collection("shares").document(share_id).get()
+    return snap.to_dict() if snap.exists else None

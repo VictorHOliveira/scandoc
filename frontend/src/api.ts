@@ -65,6 +65,16 @@ export interface Checkout {
   switched?: boolean;
 }
 
+export interface ShareCreated {
+  share_id: string;
+}
+
+export interface SharedReport {
+  share_id: string;
+  created_at: string | null;
+  result: ScanResult;
+}
+
 export class ApiError extends Error {
   status: number;
   quota?: Quota;
@@ -141,4 +151,15 @@ export function getSubscription(): Promise<SubscriptionInfo> {
 
 export function cancelSubscription(): Promise<SubscriptionInfo> {
   return api<SubscriptionInfo>("/subscribe/cancel", { method: "POST" });
+}
+
+export function createShare(jobId: string): Promise<ShareCreated> {
+  return api<ShareCreated>("/shares", {
+    method: "POST",
+    body: JSON.stringify({ job_id: jobId }),
+  });
+}
+
+export function getShare(shareId: string): Promise<SharedReport> {
+  return api<SharedReport>(`/shares/${shareId}`);
 }

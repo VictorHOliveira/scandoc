@@ -166,3 +166,82 @@ def test_subscription_expiry_downgrades_to_free(client):
 
     fake._store[("users", "uid-teste")]["plan_expires_at"] = None
     fake._store[("users", "uid-teste")]["plan_slug"] = "free"
+
+
+def _run_completed_scan(client):
+    user = fake._store.get(("users", "uid-teste")) or {}
+    user["quota_used"] = 0
+    user["quota_window_start"] = db.now()
+    fake._store[("users", "uid-teste")] = user
+    pdf = _make_pdf()
+    r = client.post(
+        "/api/scan",
+        headers=AUTH,
+        files={"file": ("relatorio.pdf", pdf, "application/pdf")},
+    )
+    assert r.status_code == 200, r.text
+    return _poll_until_done(client, r.json()["job_id"])
+
+
+def test_share_create_and_public_read(client):
+    done = _run_completed_scan(client)
+    r = client.post("/api/shares", headers=AUTH, json={"job_id": done["job_id"]})
+    assert r.status_code == 200, r.text
+    share_id = r.json()["share_id"]
+    assert share_id
+
+    pub = client.get(f"/api/shares/{share_id}")
+    assert pub.status_code == 200, pub.text
+    body = pub.json()
+    assert body["share_id"] == share_id
+    assert body["result"]["score"] > 0
+    assert body["result"]["injection_matches"]
+
+
+def test_share_requires_auth(client):
+    done = _run_completed_scan(client)
+    r = client.post("/api/shares", json={"job_id": done["job_id"]})
+    assert r.status_code == 401
+
+
+def test_share_rejects_unknown_job(client):
+    r = client.post("/api/shares", headers=AUTH, json={"job_id": "nao-existe"})
+    assert r.status_code == 404
+
+
+def test_share_rejects_foreign_job(client):
+    from app.core.jobs import jobs
+
+    other = jobs.create("outro-uid")
+    jobs.update(other.id, status="done", result={"score": 10})
+    r = client.post("/api/shares", headers=AUTH, json={"job_id": other.id})
+    assert r.status_code == 404
+
+
+def test_share_expired_returns_404(client):
+    done = _run_completed_scan(client)
+    r = client.post("/api/shares", headers=AUTH, json={"job_id": done["job_id"]})
+    assert r.status_code == 200
+    share_id = r.json()["share_id"]
+
+    from datetime import timedelta
+
+    fake._store[("shares", share_id)]["expires_at"] = db.now() - timedelta(days=1)
+    pub = client.get(f"/api/shares/{share_id}")
+    assert pub.status_code == 404
+
+
+def test_share_missing_returns_404(client):
+    r = client.get("/api/shares/abcdef")
+    assert r.status_code == 404
+
+
+def test_share_truncates_hidden_text(client):
+    done = _run_completed_scan(client)
+    from app.core.jobs import jobs as job_store
+
+    job_store.get(done["job_id"], "uid-teste").result["hidden_text"] = "x" * 5000
+    r = client.post("/api/shares", headers=AUTH, json={"job_id": done["job_id"]})
+    assert r.status_code == 200
+    pub = client.get(f"/api/shares/{r.json()['share_id']}").json()
+    assert len(pub["result"]["hidden_text"]) == 2000
