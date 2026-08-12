@@ -85,7 +85,7 @@ export default function Privacy() {
       <h3>10. Contato</h3>
       <p>
         Controladora dos dados: ScanDoc. Para questões de privacidade, entre em contato pelo e-mail
-        <strong> contato@scandoc.qaoverflow.com</strong>.
+        <strong>contato@letrindomavel.com</strong>.
       </p>
 
       <p className="hint">

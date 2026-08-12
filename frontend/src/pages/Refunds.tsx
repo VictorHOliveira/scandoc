@@ -47,7 +47,7 @@ export default function Refunds() {
       <h3>6. Contato</h3>
       <p>
         E-mail para cancelamento, reembolso e dúvidas de cobrança:{" "}
-        <strong>contato@scandoc.qaoverflow.com</strong>.
+        <strong>contato@letrindomavel.com</strong>.
       </p>
 
       <p className="hint">
